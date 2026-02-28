@@ -6,8 +6,8 @@ OUTPUT_DIR=out
 MAKE_VARIABLES=(
     ARCH=arm64
     SUBARCH=arm64
-    CROSS_COMPILE=aarch64-linux-gnu-
-    CROSS_COMPILE_ARM32=arm-none-eabi-
+    CROSS_COMPILE="${CROSS_COMPILE:-aarch64-linux-gnu-}"
+    CROSS_COMPILE_ARM32="${CROSS_COMPILE_ARM32:-arm-none-eabi-}"
     O="$OUTPUT_DIR"
 )
 
