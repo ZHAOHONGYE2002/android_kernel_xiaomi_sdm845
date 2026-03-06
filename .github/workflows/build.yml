@@ -9,6 +9,11 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        device: [dipper, ursa, equuleus]
+    outputs:
+      kernel_version: ${{ steps.version.outputs.kernel_version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -22,44 +27,57 @@ jobs:
         uses: DeterminateSystems/magic-nix-cache-action@main
 
       - name: Build kernel
-        run: nix develop --command bash -c './build.sh config && ./build.sh build'
+        run: nix develop --command bash -c './build.sh config ${{ matrix.device }} && ./build.sh build'
 
       - name: Read kernel version
+        id: version
         run: |
           KERNEL_VERSION=$(cat out/include/config/kernel.release)
+          echo "kernel_version=$KERNEL_VERSION" >> "$GITHUB_OUTPUT"
           echo "KERNEL_VERSION=$KERNEL_VERSION" >> "$GITHUB_ENV"
 
       - name: Rename kernel image
-        run: cp out/arch/arm64/boot/Image.gz-dtb "Image.gz-dtb-${KERNEL_VERSION}"
+        run: cp out/arch/arm64/boot/Image.gz-dtb "Image.gz-dtb-${{ matrix.device }}-${KERNEL_VERSION}"
 
       - name: Package AnyKernel3 zip
         run: |
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git anykernel3
           rm -rf anykernel3/.git anykernel3/anykernel.sh anykernel3/modules anykernel3/patch anykernel3/ramdisk
-          sed "s/^kernel.string=.*/kernel.string=${KERNEL_VERSION}/" anykernel.sh > anykernel3/anykernel.sh
+          sed \
+            -e "s/^kernel.string=.*/kernel.string=${KERNEL_VERSION}/" \
+            -e "s/^device.name1=.*/device.name1=${{ matrix.device }}/" \
+            anykernel.sh > anykernel3/anykernel.sh
           cp out/arch/arm64/boot/Image.gz-dtb anykernel3/
           cd anykernel3
-          zip -r9 "../AnyKernel3-${KERNEL_VERSION}.zip" . -x '*.git*'
+          zip -r9 "../AnyKernel3-${{ matrix.device }}-${KERNEL_VERSION}.zip" . -x '*.git*'
 
       - name: Upload Image.gz-dtb
         uses: actions/upload-artifact@v7
         with:
-          name: Image.gz-dtb-${{ env.KERNEL_VERSION }}
-          path: Image.gz-dtb-${{ env.KERNEL_VERSION }}
+          name: Image.gz-dtb-${{ matrix.device }}-${{ env.KERNEL_VERSION }}
+          path: Image.gz-dtb-${{ matrix.device }}-${{ env.KERNEL_VERSION }}
 
       - name: Upload AnyKernel3 zip
         uses: actions/upload-artifact@v7
         with:
-          name: AnyKernel3-${{ env.KERNEL_VERSION }}
-          path: AnyKernel3-${{ env.KERNEL_VERSION }}.zip
+          name: AnyKernel3-${{ matrix.device }}-${{ env.KERNEL_VERSION }}
+          path: AnyKernel3-${{ matrix.device }}-${{ env.KERNEL_VERSION }}.zip
+
+  release:
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v7
+        with:
+          path: artifacts
+          merge-multiple: true
 
       - name: Create release
-        if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.KERNEL_VERSION }}
-          name: ${{ env.KERNEL_VERSION }}
-          files: |
-            Image.gz-dtb-${{ env.KERNEL_VERSION }}
-            AnyKernel3-${{ env.KERNEL_VERSION }}.zip
+          tag_name: ${{ needs.build.outputs.kernel_version }}
+          name: ${{ needs.build.outputs.kernel_version }}
+          files: artifacts/*
           generate_release_notes: true

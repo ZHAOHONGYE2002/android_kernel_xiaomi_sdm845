@@ -12,7 +12,26 @@ MAKE_VARIABLES=(
 )
 
 config() {
-    make "${MAKE_VARIABLES[@]}" dipper_defconfig
+    local device="${1:?Usage: $0 config <device>}"
+    local fragment="arch/arm64/configs/vendor/xiaomi/${device}.config"
+
+    if [[ ! -f "${fragment}" ]]; then
+        echo "Error: no config fragment for device '${device}' (${fragment})" >&2
+        exit 1
+    fi
+
+    mkdir -p "${OUTPUT_DIR}"
+
+    # Merge platform base + device fragment; device settings override on conflict.
+    # -m: write merged config only, do not invoke make (we call olddefconfig next).
+    ./scripts/kconfig/merge_config.sh -m -O "${OUTPUT_DIR}" \
+        "arch/arm64/configs/vendor/xiaomi/mi845_defconfig" \
+        "${fragment}" \
+        "arch/arm64/configs/kernelsu.config" \
+        "arch/arm64/configs/gcc-compat.config"
+
+    # Fill in any symbols not covered by the fragments with their Kconfig defaults.
+    make "${MAKE_VARIABLES[@]}" olddefconfig
 }
 
 xconfig() {
@@ -20,8 +39,7 @@ xconfig() {
 }
 
 menuconfig() {
-    #make "${MAKE_VARIABLES[@]}" menuconfig
-    echo menuconfig is not working
+    echo "menuconfig is not working" >&2
 }
 
 build() {
@@ -36,8 +54,6 @@ distclean() {
     make "${MAKE_VARIABLES[@]}" distclean
 }
 
-case "${1:-}" in
-*)
-    "$1"
-    ;;
-esac
+cmd="${1:?Usage: $0 <command> [args...]}"
+shift
+"$cmd" "$@"
